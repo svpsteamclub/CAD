@@ -1,0 +1,56 @@
+body {
+    font-family: sans-serif;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    background-color: #f0f0f0;
+    touch-action: none; /* Important for preventing scrolling while drawing on touch devices */
+    overflow: hidden; /* Prevents scrollbars if canvas is slightly larger than viewport */
+}
+
+.toolbar {
+    background-color: #333;
+    padding: 10px;
+    margin-bottom: 10px;
+    border-radius: 5px;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap; /* Allow toolbar items to wrap on small screens */
+}
+
+.tool-button, #clear-canvas, #save-svg {
+    padding: 8px 15px;
+    border: none;
+    background-color: #555;
+    color: white;
+    cursor: pointer;
+    border-radius: 3px;
+    transition: background-color 0.2s;
+}
+
+.tool-button:hover, #clear-canvas:hover, #save-svg:hover {
+    background-color: #777;
+}
+
+.tool-button.active {
+    background-color: #007bff;
+}
+
+#color-picker {
+    border: 1px solid #ccc;
+    padding: 2px;
+    width: 40px;
+    height: 30px;
+    cursor: pointer;
+}
+
+#drawing-canvas {
+    border: 1px solid #000;
+    background-color: #fff;
+    cursor: crosshair;
+    /* Ensure canvas doesn't cause overflow if window is slightly too small */
+    max-width: 100%;
+    max-height: calc(100vh - 80px); /* Adjust based on toolbar height */
+}

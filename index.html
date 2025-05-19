@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Simple CAD Web App</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="toolbar">
+        <button id="tool-line" class="tool-button active" data-tool="line">Line</button>
+        <button id="tool-rect" class="tool-button" data-tool="rect">Rectangle</button>
+        <button id="tool-circle" class="tool-button" data-tool="circle">Circle</button>
+        <input type="color" id="color-picker" value="#000000" title="Stroke Color">
+        <button id="clear-canvas">Clear</button>
+        <button id="save-svg">Save SVG</button>
+    </div>
+    <canvas id="drawing-canvas"></canvas>
+
+    <script src="script.js"></script>
+</body>
+</html>
