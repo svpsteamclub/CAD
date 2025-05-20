@@ -425,6 +425,35 @@ document.addEventListener('DOMContentLoaded', () => {
         loadSvgInput.click();
     });
 
+    // Function to inline SVG styles and remove <style> blocks
+    function inlineSvgStyles(svgString) {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(svgString, 'image/svg+xml');
+        const svg = doc.documentElement;
+        const style = svg.querySelector('style');
+        if (style) {
+            const css = style.textContent;
+            const rules = css.match(/[^{]+{[^}]+}/g) || [];
+            rules.forEach(rule => {
+                const parts = rule.split('{');
+                const selector = parts[0].trim().replace('.', '');
+                const declarations = parts[1].replace('}', '').trim();
+                svg.querySelectorAll('.' + selector).forEach(el => {
+                    declarations.split(';').forEach(decl => {
+                        if (decl.trim()) {
+                            const [prop, value] = decl.split(':');
+                            if (prop && value) {
+                                el.setAttribute(prop.trim(), value.trim());
+                            }
+                        }
+                    });
+                });
+            });
+            style.remove();
+        }
+        return new XMLSerializer().serializeToString(svg);
+    }
+
     // Enhance SVG loading
     loadSvgInput.addEventListener('change', (event) => {
         const file = event.target.files[0];
@@ -438,7 +467,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const reader = new FileReader();
         reader.onload = (e) => {
-            const svgString = e.target.result;
+            let svgString = e.target.result;
+            // Inline styles and remove <style> blocks
+            svgString = inlineSvgStyles(svgString);
             
             // Show loading status
             showStatus("Loading SVG...");
@@ -487,51 +518,37 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
 
                 try {
-                    // Create a group from the SVG objects
                     const group = fabric.util.groupSVGElements(objects, options);
-
-                    // Apply current stroke settings to all objects in the group
                     group.getObjects().forEach(obj => {
-                        // Preserve original stroke if it exists
-                        if (!obj.stroke) {
-                            obj.set('stroke', currentColor);
+                        try {
+                            if (!obj.stroke) obj.set('stroke', currentColor);
+                            if (!obj.strokeWidth && obj.stroke) obj.set('strokeWidth', currentStrokeWidth);
+                            if (obj.fill && obj.fill !== 'none') obj.set('fill', 'transparent');
+                            obj.set({ selectable: true, evented: true, visible: true });
+                        } catch (e) {
+                            console.warn("Warning loading SVG element:", obj, e);
                         }
-                        if (!obj.strokeWidth && obj.stroke) {
-                            obj.set('strokeWidth', currentStrokeWidth);
-                        }
-                        
-                        // Make fills transparent for CAD-like behavior
-                        if (obj.fill && obj.fill !== 'none') {
-                            obj.set('fill', 'transparent');
-                        }
-                        
-                        // Ensure all objects are selectable and visible
-                        obj.set({
-                            selectable: true,
-                            evented: true,
-                            visible: true
-                        });
                     });
-
-                    // Set up the group for placement
                     group.set({
                         originX: 'center',
                         originY: 'center',
                         centeredScaling: true,
                         centeredRotation: true
                     });
-
                     setPlacingSvgMode(true, group);
                 } catch (error) {
-                    console.error("Error processing SVG:", error);
+                    console.error("Error processing SVG group:", error);
                     alert("Error processing SVG. The file might be too complex or contain unsupported elements.");
                     showStatus("");
                 }
             }, (error) => {
                 clearTimeout(loadingTimeout);
-                console.error("Error loading SVG:", error);
-                alert("Error loading SVG. The file might be corrupted or contain unsupported elements.");
-                showStatus("");
+                if (!window._svgErrorShown) {
+                    window._svgErrorShown = true;
+                    alert("Error loading SVG. The file might be corrupted or contain unsupported elements.");
+                    showStatus("");
+                    setTimeout(() => { window._svgErrorShown = false; }, 1000);
+                }
             });
             
             loadSvgInput.value = '';
