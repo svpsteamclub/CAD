@@ -147,8 +147,9 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
             document.body.classList.remove('placing-svg-mode');
             showStatus("");
-            if (svgGroup && !active) {
-                fabricCanvas.remove(svgGroup);
+            // Only remove the SVG if we're canceling placement (svgGroup is null)
+            if (svgGroup === null && loadedSvgGroup) {
+                fabricCanvas.remove(loadedSvgGroup);
             }
             loadedSvgGroup = null;
         }
@@ -241,10 +242,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Drawing Event Handlers (using Fabric's canvas events) ---
     fabricCanvas.on('mouse:down', (o) => {
         if (currentTool === 'select' || isPlacingSvgMode) {
-             if (isPlacingSvgMode && o.target !== loadedSvgGroup) {
-                // Clicked outside the SVG being placed, finalize its current state.
-                setPlacingSvgMode(false, loadedSvgGroup); // keep the group
-                activateTool('select'); // Switch to select tool
+            if (isPlacingSvgMode && o.target !== loadedSvgGroup) {
+                // Clicked outside the SVG being placed, finalize its current state
+                setPlacingSvgMode(false, loadedSvgGroup); // Pass the group to keep it
+                activateTool('select');
             }
             return; // Let Fabric handle selection/movement
         }
@@ -383,6 +384,10 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     fabricCanvas.on('mouse:up', (o) => {
+        if (isPlacingSvgMode && o.target !== loadedSvgGroup) {
+            // If we clicked outside the SVG being placed, finalize its placement
+            setPlacingSvgMode(false, loadedSvgGroup);
+        }
         if (isDrawingShape && currentShape) {
             currentShape.set({
                 selectable: true, // Make it selectable after drawing
