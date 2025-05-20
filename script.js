@@ -436,18 +436,24 @@ document.addEventListener('DOMContentLoaded', () => {
             const rules = css.match(/[^{]+{[^}]+}/g) || [];
             rules.forEach(rule => {
                 const parts = rule.split('{');
-                const selector = parts[0].trim().replace('.', '');
+                // Remove comments and trim
+                const selector = parts[0].replace(/\/\*.*?\*\//g, '').trim();
                 const declarations = parts[1].replace('}', '').trim();
-                svg.querySelectorAll('.' + selector).forEach(el => {
-                    declarations.split(';').forEach(decl => {
-                        if (decl.trim()) {
-                            const [prop, value] = decl.split(':');
-                            if (prop && value) {
-                                el.setAttribute(prop.trim(), value.trim());
+                if (!selector) return; // Skip empty selectors
+                try {
+                    svg.querySelectorAll(selector).forEach(el => {
+                        declarations.split(';').forEach(decl => {
+                            if (decl.trim()) {
+                                const [prop, value] = decl.split(':');
+                                if (prop && value) {
+                                    el.setAttribute(prop.trim(), value.trim());
+                                }
                             }
-                        }
+                        });
                     });
-                });
+                } catch (e) {
+                    console.warn("Invalid selector skipped:", selector, e);
+                }
             });
             style.remove();
         }
