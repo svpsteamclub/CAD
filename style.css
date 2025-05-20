@@ -20,7 +20,7 @@ body {
     flex-wrap: wrap; /* Allow toolbar items to wrap on small screens */
 }
 
-.tool-button, #clear-canvas, #save-svg {
+.tool-button, #clear-canvas, #save-svg, #load-svg-button { /* Added #load-svg-button */
     padding: 8px 15px;
     border: none;
     background-color: #555;
@@ -30,7 +30,7 @@ body {
     transition: background-color 0.2s;
 }
 
-.tool-button:hover, #clear-canvas:hover, #save-svg:hover {
+.tool-button:hover, #clear-canvas:hover, #save-svg:hover, #load-svg-button:hover { /* Added #load-svg-button */
     background-color: #777;
 }
 
@@ -46,11 +46,20 @@ body {
     cursor: pointer;
 }
 
+#stroke-width-picker {
+    width: 50px;
+    padding: 5px;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    height: 30px; /* Match color picker height */
+    box-sizing: border-box;
+}
+
+
 #drawing-canvas {
     border: 1px solid #000;
     background-color: #fff;
     cursor: crosshair;
-    /* Ensure canvas doesn't cause overflow if window is slightly too small */
     max-width: 100%;
     max-height: calc(100vh - 80px); /* Adjust based on toolbar height */
 }
