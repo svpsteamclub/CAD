@@ -449,11 +449,36 @@ document.addEventListener('DOMContentLoaded', () => {
                 loadSvgInput.value = '';
             }, 10000); // 10 second timeout
 
-            // Clean up SVG string before loading
-            const cleanSvgString = cleanSvg(svgString);
+            // Parse SVG string to ensure it's valid
+            const parser = new DOMParser();
+            const svgDoc = parser.parseFromString(svgString, 'image/svg+xml');
             
+            if (svgDoc.documentElement.nodeName !== 'svg') {
+                alert("Invalid SVG file.");
+                showStatus("");
+                loadSvgInput.value = '';
+                return;
+            }
+
+            // Get the SVG element
+            const svgElement = svgDoc.documentElement;
+            
+            // Ensure viewBox is set
+            if (!svgElement.getAttribute('viewBox') && 
+                svgElement.getAttribute('width') && 
+                svgElement.getAttribute('height')) {
+                const width = svgElement.getAttribute('width').replace('px', '');
+                const height = svgElement.getAttribute('height').replace('px', '');
+                svgElement.setAttribute('viewBox', `0 0 ${width} ${height}`);
+            }
+
+            // Convert SVG to string
+            const serializer = new XMLSerializer();
+            const cleanSvgString = serializer.serializeToString(svgElement);
+
+            // Load SVG using Fabric.js
             fabric.loadSVGFromString(cleanSvgString, (objects, options) => {
-                clearTimeout(loadingTimeout); // Clear the timeout
+                clearTimeout(loadingTimeout);
 
                 if (!objects || objects.length === 0) {
                     alert("Could not load SVG or SVG is empty/unsupported.");
@@ -521,90 +546,6 @@ document.addEventListener('DOMContentLoaded', () => {
         
         reader.readAsText(file);
     });
-
-    // Add SVG cleaning function
-    function cleanSvg(svgString) {
-        try {
-            // Create a temporary div to parse the SVG
-            const div = document.createElement('div');
-            div.innerHTML = svgString;
-            const svg = div.querySelector('svg');
-            
-            if (!svg) {
-                throw new Error('No SVG element found');
-            }
-
-            // Remove problematic attributes
-            const removeAttributes = [
-                'xmlns:xlink',
-                'xmlns:xml',
-                'xmlns:svg',
-                'xmlns:ns1',
-                'xmlns:ns2',
-                'xmlns:ns3',
-                'xmlns:ns4',
-                'xmlns:ns5',
-                'xmlns:ns6',
-                'xmlns:ns7',
-                'xmlns:ns8',
-                'xmlns:ns9',
-                'xmlns:ns10'
-            ];
-
-            removeAttributes.forEach(attr => {
-                svg.removeAttribute(attr);
-            });
-
-            // Ensure viewBox is set
-            if (!svg.getAttribute('viewBox') && svg.getAttribute('width') && svg.getAttribute('height')) {
-                const width = svg.getAttribute('width').replace('px', '');
-                const height = svg.getAttribute('height').replace('px', '');
-                svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
-            }
-
-            // Remove any script elements
-            const scripts = svg.getElementsByTagName('script');
-            while (scripts.length > 0) {
-                scripts[0].parentNode.removeChild(scripts[0]);
-            }
-
-            // Remove any style elements that might cause issues
-            const styles = svg.getElementsByTagName('style');
-            while (styles.length > 0) {
-                styles[0].parentNode.removeChild(styles[0]);
-            }
-
-            // Convert all colors to RGB format
-            const elements = svg.getElementsByTagName('*');
-            for (let i = 0; i < elements.length; i++) {
-                const element = elements[i];
-                const attributes = ['fill', 'stroke'];
-                attributes.forEach(attr => {
-                    if (element.hasAttribute(attr)) {
-                        const color = element.getAttribute(attr);
-                        if (color && color !== 'none' && color !== 'transparent') {
-                            try {
-                                // Convert named colors to RGB
-                                const tempDiv = document.createElement('div');
-                                tempDiv.style.color = color;
-                                document.body.appendChild(tempDiv);
-                                const rgbColor = window.getComputedStyle(tempDiv).color;
-                                document.body.removeChild(tempDiv);
-                                element.setAttribute(attr, rgbColor);
-                            } catch (e) {
-                                console.warn('Could not convert color:', color);
-                            }
-                        }
-                    }
-                });
-            }
-
-            return svg.outerHTML;
-        } catch (error) {
-            console.error("Error cleaning SVG:", error);
-            return svgString; // Return original if cleaning fails
-        }
-    }
 
     // Add keyboard controls for fine-tuning SVG placement
     window.addEventListener('keydown', (e) => {
