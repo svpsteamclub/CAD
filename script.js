@@ -562,11 +562,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     // Enhanced error logging for SVG import
                     console.error("Error processing SVG group:", error);
                     if (objects && objects.length) {
-                        console.error("SVG objects:", objects);
-                        console.error("SVG options:", options);
+                        // Log the error, but do NOT show an alert if objects exist (SVG is still imported)
+                        console.warn("SVG loaded with warnings. See console for details.");
+                    } else {
+                        // Only alert if nothing was imported
+                        alert("Error processing SVG. The file might be too complex or contain unsupported elements.\n" + error);
+                        showStatus("");
                     }
-                    alert("Error processing SVG. The file might be too complex or contain unsupported elements.\n" + error);
-                    showStatus("");
                 }
             }, (error) => {
                 clearTimeout(loadingTimeout);
