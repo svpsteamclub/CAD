@@ -38,6 +38,10 @@ body {
     background-color: #007bff;
 }
 
+#snap-to-grid.active {
+    background-color: #28a745;
+}
+
 #color-picker {
     border: 1px solid #ccc;
     padding: 2px;

@@ -6,6 +6,50 @@ document.addEventListener('DOMContentLoaded', () => {
         backgroundColor: '#fff'
     });
 
+    // Add grid
+    const gridSize = 20;
+    const gridColor = '#ddd';
+    
+    function drawGrid() {
+        const width = fabricCanvas.width;
+        const height = fabricCanvas.height;
+        
+        // Clear existing grid
+        fabricCanvas.getObjects().forEach(obj => {
+            if (obj.isGridLine) {
+                fabricCanvas.remove(obj);
+            }
+        });
+
+        // Draw vertical lines
+        for (let i = 0; i <= width; i += gridSize) {
+            fabricCanvas.add(new fabric.Line([i, 0, i, height], {
+                stroke: gridColor,
+                selectable: false,
+                evented: false,
+                isGridLine: true
+            }));
+        }
+
+        // Draw horizontal lines
+        for (let i = 0; i <= height; i += gridSize) {
+            fabricCanvas.add(new fabric.Line([0, i, width, i], {
+                stroke: gridColor,
+                selectable: false,
+                evented: false,
+                isGridLine: true
+            }));
+        }
+    }
+
+    // Update grid on resize
+    const originalResizeCanvas = resizeCanvas;
+    resizeCanvas = function() {
+        originalResizeCanvas();
+        drawGrid();
+    };
+    drawGrid();
+
     const toolbar = document.querySelector('.toolbar');
     const colorPicker = document.getElementById('color-picker');
     const strokeWidthPicker = document.getElementById('stroke-width-picker');
@@ -20,11 +64,30 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let currentColor = '#000000';
     let currentStrokeWidth = 2;
+    let snapToGrid = true; // Add snap to grid setting
 
     // SVG Placement State
     let isPlacingSvgMode = false;
     let loadedSvgGroup = null; // Will hold the fabric.Group of the loaded SVG
     let placementInitialScale = { x: 1, y: 1 };
+
+    // Add snap to grid function
+    function snapToGridValue(value) {
+        if (!snapToGrid) return value;
+        return Math.round(value / gridSize) * gridSize;
+    }
+
+    // Add snap to grid toggle button
+    const snapButton = document.createElement('button');
+    snapButton.id = 'snap-to-grid';
+    snapButton.className = 'tool-button';
+    snapButton.textContent = 'Snap to Grid';
+    snapButton.title = 'Toggle snap to grid';
+    snapButton.addEventListener('click', () => {
+        snapToGrid = !snapToGrid;
+        snapButton.classList.toggle('active');
+    });
+    toolbar.insertBefore(snapButton, document.getElementById('clear-canvas'));
 
     function showStatus(message) {
         statusMessage.textContent = message;
@@ -158,8 +221,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         isDrawingShape = true;
         const pointer = fabricCanvas.getPointer(o.e);
-        startX = pointer.x;
-        startY = pointer.y;
+        startX = snapToGridValue(pointer.x);
+        startY = snapToGridValue(pointer.y);
 
         switch (currentTool) {
             case 'line':
@@ -204,8 +267,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!isDrawingShape || !currentShape || currentTool === 'select') return;
 
         const pointer = fabricCanvas.getPointer(o.e);
-        const endX = pointer.x;
-        const endY = pointer.y;
+        const endX = snapToGridValue(pointer.x);
+        const endY = snapToGridValue(pointer.y);
 
         switch (currentTool) {
             case 'line':
@@ -438,6 +501,26 @@ document.addEventListener('DOMContentLoaded', () => {
                 fabricCanvas.renderAll();
             }
         }
+    });
+
+    // Add snap to grid for object movement
+    fabricCanvas.on('object:moving', (e) => {
+        if (!snapToGrid) return;
+        const obj = e.target;
+        obj.set({
+            left: snapToGridValue(obj.left),
+            top: snapToGridValue(obj.top)
+        });
+    });
+
+    // Add snap to grid for object resizing
+    fabricCanvas.on('object:scaling', (e) => {
+        if (!snapToGrid) return;
+        const obj = e.target;
+        obj.set({
+            width: snapToGridValue(obj.width),
+            height: snapToGridValue(obj.height)
+        });
     });
 
     // Initial tool activation
