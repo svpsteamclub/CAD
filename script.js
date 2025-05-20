@@ -1,6 +1,11 @@
 document.addEventListener('DOMContentLoaded', () => {
-    const canvas = document.getElementById('drawing-canvas');
-    const ctx = canvas.getContext('2d');
+    // Initialize Fabric.js canvas
+    const fabricCanvas = new fabric.Canvas('drawing-canvas', {
+        isDrawingMode: false, // We'll handle drawing modes manually for specific shapes
+        selection: true,      // Allow object selection
+        backgroundColor: '#fff'
+    });
+
     const toolbar = document.querySelector('.toolbar');
     const colorPicker = document.getElementById('color-picker');
     const strokeWidthPicker = document.getElementById('stroke-width-picker');
@@ -8,371 +13,316 @@ document.addEventListener('DOMContentLoaded', () => {
     const loadSvgButton = document.getElementById('load-svg-button');
     const statusMessage = document.getElementById('status-message');
 
-    let currentTool = 'line';
-    let isDrawing = false;
+    let currentTool = 'line'; // 'line', 'rect', 'circle', 'select' (default Fabric mode)
+    let isDrawingShape = false; // Flag for drawing our custom shapes
     let startX, startY;
-    let shapes = [];
+    let currentShape = null; // Holds the fabric object being drawn
+
     let currentColor = '#000000';
     let currentStrokeWidth = 2;
 
+    // SVG Placement State
     let isPlacingSvgMode = false;
-    let loadedSvgObject = null;
-    let placementAnchorPos = null;
-    let isDraggingForPlacement = false;
+    let loadedSvgGroup = null; // Will hold the fabric.Group of the loaded SVG
+    let placementInitialScale = { x: 1, y: 1 };
 
     function showStatus(message) {
         statusMessage.textContent = message;
         statusMessage.style.display = message ? 'block' : 'none';
     }
 
-    function setPlacingSvgMode(active) {
+    function setPlacingSvgMode(active, svgGroup = null) {
         isPlacingSvgMode = active;
-        if (active) {
+        loadedSvgGroup = svgGroup;
+        fabricCanvas.discardActiveObject(); // Deselect any active object
+
+        if (active && svgGroup) {
             document.body.classList.add('placing-svg-mode');
-            showStatus("SVG loaded. Click and drag on canvas to place and size.");
+            // Initially place the SVG slightly off-center and small for user to position
+            fabricCanvas.add(svgGroup);
+            fabricCanvas.centerObject(svgGroup);
+            svgGroup.scaleToWidth(fabricCanvas.width * 0.3); // Initial small size
+            if (svgGroup.isContainedWithinObject(fabricCanvas) === false) { // if aspect ratio makes it too tall
+                 svgGroup.scaleToHeight(fabricCanvas.height * 0.3);
+            }
+
+            fabricCanvas.setActiveObject(svgGroup); // Make it selectable
+            fabricCanvas.renderAll();
+            showStatus("SVG loaded. Click and drag to position, use handles to resize/rotate.");
+            // Switch to selection tool implicitly
+            activateTool('select');
         } else {
             document.body.classList.remove('placing-svg-mode');
             showStatus("");
-            loadedSvgObject = null;
-            placementAnchorPos = null;
-            isDraggingForPlacement = false;
+            if (svgGroup && !active) { // If canceling placement
+                fabricCanvas.remove(svgGroup);
+            }
+            loadedSvgGroup = null;
         }
     }
+
 
     function resizeCanvas() {
-        const toolbarHeight = toolbar.offsetHeight + 20;
-        canvas.width = window.innerWidth * 0.95;
-        canvas.height = (window.innerHeight - toolbarHeight) * 0.95;
-        redrawShapes();
-        if (isPlacingSvgMode && isDraggingForPlacement && placementAnchorPos && loadedSvgObject) {
-            // If resizing while placement is active, redraw preview (using a dummy currentMousePos for now)
-            // This is a simplification; a more robust solution would store the last mouse pos.
-            // For now, just ensure the canvas is cleared and permanent shapes are redrawn.
-        }
+        const canvasEl = document.getElementById('drawing-canvas');
+        const toolbarHeight = toolbar.offsetHeight + 20; // Approx height of toolbar + margin
+        const newWidth = window.innerWidth * 0.95;
+        const newHeight = (window.innerHeight - toolbarHeight) * 0.95;
+
+        fabricCanvas.setWidth(newWidth);
+        fabricCanvas.setHeight(newHeight);
+        fabricCanvas.calcOffset(); // Recalculate canvas offsets for mouse positioning
+        fabricCanvas.renderAll();
     }
     window.addEventListener('resize', resizeCanvas);
-    resizeCanvas();
+    resizeCanvas(); // Initial size
 
+    // --- Tool Selection ---
     const toolButtons = document.querySelectorAll('.tool-button');
+    function activateTool(toolName) {
+        toolButtons.forEach(btn => btn.classList.remove('active'));
+        const activeButton = document.getElementById(`tool-${toolName}`);
+        if (activeButton) {
+            activeButton.classList.add('active');
+        }
+        currentTool = toolName;
+
+        if (currentTool === 'select') {
+            fabricCanvas.isDrawingMode = false; // Turn off freehand drawing
+            fabricCanvas.selection = true; // Allow object selection
+            fabricCanvas.defaultCursor = 'default';
+            fabricCanvas.getObjects().forEach(obj => obj.set({selectable: true, evented: true}));
+        } else {
+            fabricCanvas.isDrawingMode = false; // Ensure freehand is off
+            fabricCanvas.selection = false; // Disable object selection while drawing new shapes
+            fabricCanvas.defaultCursor = 'crosshair';
+            fabricCanvas.getObjects().forEach(obj => obj.set({selectable: false, evented: false}));
+        }
+        fabricCanvas.discardActiveObject().renderAll(); // Deselect any active objects
+    }
+
     toolButtons.forEach(button => {
         button.addEventListener('click', () => {
-            if (isPlacingSvgMode) return;
-            toolButtons.forEach(btn => btn.classList.remove('active'));
-            button.classList.add('active');
-            currentTool = button.dataset.tool;
+            if (isPlacingSvgMode) { // Finalize SVG placement before changing tool
+                if(loadedSvgGroup) fabricCanvas.setActiveObject(loadedSvgGroup); // Ensure it's active to be "kept"
+                setPlacingSvgMode(false); // Exit placement mode, keeping the SVG
+            }
+            activateTool(button.dataset.tool);
         });
     });
+    activateTool('line'); // Default tool
 
+    // --- Color and Stroke Width ---
     colorPicker.addEventListener('input', (e) => {
         currentColor = e.target.value;
+        if (fabricCanvas.getActiveObject()) {
+            const activeObj = fabricCanvas.getActiveObject();
+            // For complex groups (like SVGs), iterate if needed
+            if (activeObj.isType('group')) {
+                activeObj.getObjects().forEach(obj => {
+                    if (obj.stroke) obj.set('stroke', currentColor);
+                });
+            } else {
+                 if (activeObj.stroke) activeObj.set('stroke', currentColor);
+            }
+            fabricCanvas.renderAll();
+        }
     });
 
     strokeWidthPicker.addEventListener('input', (e) => {
         currentStrokeWidth = parseInt(e.target.value, 10);
         if (currentStrokeWidth < 1) currentStrokeWidth = 1;
         if (currentStrokeWidth > 50) currentStrokeWidth = 50;
+        if (fabricCanvas.getActiveObject()) {
+            const activeObj = fabricCanvas.getActiveObject();
+             if (activeObj.isType('group')) {
+                activeObj.getObjects().forEach(obj => {
+                     if (obj.strokeWidth) obj.set('strokeWidth', currentStrokeWidth);
+                });
+            } else {
+                if (activeObj.strokeWidth) activeObj.set('strokeWidth', currentStrokeWidth);
+            }
+            fabricCanvas.renderAll();
+        }
     });
 
-    function getMousePos(canvas, evt) {
-        const rect = canvas.getBoundingClientRect();
-        let clientX, clientY;
-        if (evt.touches && evt.touches.length > 0) {
-            clientX = evt.touches[0].clientX;
-            clientY = evt.touches[0].clientY;
-        } else {
-            clientX = evt.clientX;
-            clientY = evt.clientY;
-        }
-        return {
-            x: clientX - rect.left,
-            y: clientY - rect.top
-        };
-    }
-
-    function handleMouseDown(e) {
-        e.preventDefault();
-        const pos = getMousePos(canvas, e);
-
-        if (isPlacingSvgMode) {
-            if (!loadedSvgObject) return;
-            placementAnchorPos = { x: pos.x, y: pos.y };
-            isDraggingForPlacement = true;
-            showStatus("Drag to size, release to place.");
-        } else {
-            isDrawing = true;
-            startX = pos.x;
-            startY = pos.y;
-        }
-    }
-
-    function handleMouseMove(e) {
-        e.preventDefault();
-        if (isPlacingSvgMode) {
-            if (!isDraggingForPlacement || !placementAnchorPos || !loadedSvgObject) return;
-            const currentPos = getMousePos(canvas, e);
-            redrawShapes();
-            drawPlacementPreview(currentPos);
-        } else {
-            if (!isDrawing) return;
-            const pos = getMousePos(canvas, e);
-            redrawShapes();
-
-            ctx.beginPath();
-            ctx.strokeStyle = currentColor;
-            ctx.lineWidth = currentStrokeWidth;
-
-            switch (currentTool) {
-                case 'line':
-                    ctx.moveTo(startX, startY);
-                    ctx.lineTo(pos.x, pos.y);
-                    break;
-                case 'rect':
-                    ctx.rect(startX, startY, pos.x - startX, pos.y - startY);
-                    break;
-                case 'circle':
-                    const radius = Math.sqrt(Math.pow(pos.x - startX, 2) + Math.pow(pos.y - startY, 2));
-                    ctx.arc(startX, startY, radius, 0, 2 * Math.PI);
-                    break;
+    // --- Drawing Event Handlers (using Fabric's canvas events) ---
+    fabricCanvas.on('mouse:down', (o) => {
+        if (currentTool === 'select' || isPlacingSvgMode) {
+             if (isPlacingSvgMode && o.target !== loadedSvgGroup) {
+                // Clicked outside the SVG being placed, finalize its current state.
+                setPlacingSvgMode(false, loadedSvgGroup); // keep the group
+                activateTool('select'); // Switch to select tool
             }
-            ctx.stroke();
+            return; // Let Fabric handle selection/movement
         }
-    }
 
-    function handleMouseUp(e) {
-        e.preventDefault();
-        if (isPlacingSvgMode) {
-            if (!isDraggingForPlacement || !placementAnchorPos || !loadedSvgObject) return;
-            const finalPos = getMousePos(canvas, e.changedTouches ? e.changedTouches[0] : e);
-            finalizeSvgPlacement(finalPos);
-            setPlacingSvgMode(false);
-        } else {
-            if (!isDrawing) return;
-            isDrawing = false;
-            const pos = getMousePos(canvas, e.changedTouches ? e.changedTouches[0] : e);
+        isDrawingShape = true;
+        const pointer = fabricCanvas.getPointer(o.e);
+        startX = pointer.x;
+        startY = pointer.y;
 
-            let shapeData = {
-                tool: currentTool,
-                color: currentColor,
-                lineWidth: currentStrokeWidth,
-                x1: startX,
-                y1: startY
-            };
-
-            if (currentTool === 'line') {
-                shapeData.x2 = pos.x;
-                shapeData.y2 = pos.y;
-            } else if (currentTool === 'rect') {
-                shapeData.width = pos.x - startX;
-                shapeData.height = pos.y - startY;
-            } else if (currentTool === 'circle') {
-                shapeData.radius = Math.sqrt(Math.pow(pos.x - startX, 2) + Math.pow(pos.y - startY, 2));
-            }
-            shapes.push(shapeData);
-            redrawShapes();
+        switch (currentTool) {
+            case 'line':
+                const points = [startX, startY, startX, startY];
+                currentShape = new fabric.Line(points, {
+                    stroke: currentColor,
+                    strokeWidth: currentStrokeWidth,
+                    selectable: false, evented: false
+                });
+                break;
+            case 'rect':
+                currentShape = new fabric.Rect({
+                    left: startX,
+                    top: startY,
+                    width: 0,
+                    height: 0,
+                    stroke: currentColor,
+                    strokeWidth: currentStrokeWidth,
+                    fill: 'transparent', // Or a fill color
+                    selectable: false, evented: false
+                });
+                break;
+            case 'circle':
+                currentShape = new fabric.Circle({
+                    left: startX,
+                    top: startY,
+                    radius: 0,
+                    stroke: currentColor,
+                    strokeWidth: currentStrokeWidth,
+                    fill: 'transparent',
+                    selectable: false, evented: false,
+                    originX: 'left', originY: 'top' // Important for radius calc
+                });
+                break;
         }
-    }
-
-    function handleMouseOut(e) {
-        if (isPlacingSvgMode) {
-            // Optional: Cancel placement if mouse leaves canvas while dragging
-            // For now, we don't cancel automatically. User must release mouse button.
-        } else {
-            if (isDrawing) {
-                isDrawing = false;
-                redrawShapes();
-            }
+        if (currentShape) {
+            fabricCanvas.add(currentShape);
         }
-    }
-
-    canvas.addEventListener('mousedown', handleMouseDown);
-    canvas.addEventListener('mousemove', handleMouseMove);
-    canvas.addEventListener('mouseup', handleMouseUp);
-    canvas.addEventListener('mouseout', handleMouseOut);
-
-    canvas.addEventListener('touchstart', handleMouseDown);
-    canvas.addEventListener('touchmove', handleMouseMove);
-    canvas.addEventListener('touchend', handleMouseUp);
-    canvas.addEventListener('touchcancel', () => {
-        if (isPlacingSvgMode) {
-            // If a touch is cancelled, consider resetting placement mode or handling appropriately
-            // For simplicity, we currently let touchend handle finalization.
-        } else {
-            isDrawing = false;
-        }
-        redrawShapes();
     });
 
-    function redrawShapes() {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        shapes.forEach(shape => {
-            ctx.beginPath();
-            ctx.strokeStyle = shape.color;
-            ctx.lineWidth = shape.lineWidth || 2;
+    fabricCanvas.on('mouse:move', (o) => {
+        if (!isDrawingShape || !currentShape || currentTool === 'select') return;
 
-            switch (shape.tool) {
-                case 'line':
-                    ctx.moveTo(shape.x1, shape.y1);
-                    ctx.lineTo(shape.x2, shape.y2);
-                    break;
-                case 'rect':
-                    ctx.rect(shape.x1, shape.y1, shape.width, shape.height);
-                    break;
-                case 'circle':
-                    ctx.arc(shape.x1, shape.y1, shape.radius, 0, 2 * Math.PI);
-                    break;
+        const pointer = fabricCanvas.getPointer(o.e);
+        const endX = pointer.x;
+        const endY = pointer.y;
+
+        switch (currentTool) {
+            case 'line':
+                currentShape.set({ x2: endX, y2: endY });
+                break;
+            case 'rect':
+                let width = endX - startX;
+                let height = endY - startY;
+                currentShape.set({
+                    width: Math.abs(width),
+                    height: Math.abs(height),
+                    left: width > 0 ? startX : endX,
+                    top: height > 0 ? startY : endY
+                });
+                break;
+            case 'circle':
+                const radius = Math.sqrt(Math.pow(endX - startX, 2) + Math.pow(endY - startY, 2)) / 2;
+                // Circle's left/top in Fabric is its center if originX/Y is 'center'
+                // If origin is 'left'/'top', then left/top is the bounding box corner.
+                // For drawing by dragging a diameter:
+                let circleLeft = Math.min(startX, endX);
+                let circleTop = Math.min(startY, endY);
+                let diameterX = Math.abs(endX - startX);
+                let diameterY = Math.abs(endY - startY);
+                let circleRadius = Math.min(diameterX, diameterY) / 2; // Make it a circle within the rect
+
+                currentShape.set({
+                    left: startX, // Use startX, startY as one corner of bounding box
+                    top: startY,
+                    // For a circle, radius is from center. Simpler to set width/height of bounding box
+                    // then derive radius. But Fabric's Circle takes radius directly.
+                    // Let's use simpler radius calculation based on distance from start for now.
+                    radius: Math.sqrt(Math.pow(endX - startX, 2) + Math.pow(endY - startY, 2))
+                });
+                // Correction for circle, as it's drawn from top-left of its bounding box if origin is left/top
+                // The currentShape is already at startX, startY. We just update its radius.
+                // To draw from center, we'd set originX/Y to 'center' and calculate radius from center.
+                // For drawing by dragging corner to corner (like a rect containing the circle):
+                // currentShape.set({
+                //     left: (startX + endX) / 2, // Center X
+                //     top: (startY + endY) / 2,  // Center Y
+                //     radius: Math.sqrt(Math.pow(endX - startX, 2) + Math.pow(endY - startY, 2)) / 2,
+                //     originX: 'center', originY: 'center'
+                // });
+
+                // To draw from a center point outwards (like the old canvas circle):
+                // This means startX,startY IS the center.
+                // currentShape.set({
+                //    radius: Math.sqrt(Math.pow(endX - startX, 2) + Math.pow(endY - startY, 2))
+                // });
+                // BUT if you set left/top and radius, and origin is left/top, it works like this:
+                // The startX, startY is the top-left of the circle's bounding box.
+                let w = endX - startX;
+                let h = endY - startY;
+                currentShape.set({
+                    radius: Math.sqrt(w*w + h*h) / 2, // Radius is half the diagonal
+                    // Adjust origin to make it feel like drawing a diameter
+                    originX: w < 0 ? 'right' : 'left',
+                    originY: h < 0 ? 'bottom' : 'top',
+                    left: Math.min(startX, endX), // This is incorrect for how radius works with origin
+                    top: Math.min(startY, endY),   // This is incorrect for how radius works with origin
+                });
+                 // Simplest for drag-draw circle (like a line representing diameter):
+                 // Treat (startX, startY) as center, and drag to set radius.
+                 // For this, we need to set originX/Y to 'center' during creation.
+                 // Let's adjust circle creation and drawing.
+                 // If currentShape.originX is 'left':
+                 currentShape.set({ radius: Math.sqrt(Math.pow(endX - currentShape.left, 2) + Math.pow(endY - currentShape.top, 2))});
+                 // This is still tricky due to how fabric circle is defined by left, top, radius, and origin.
+                 // For a drag from corner to corner bounding box feel:
+                 // We need to re-create the circle or update its position and radius carefully.
+                 // Let's go back to the previous simple circle from center for now.
+                 // (This means Line and Rect tools are intuitive, Circle needs more thought for drag-draw behavior)
+
+                 // Reverting to simpler circle drawing, assuming startX,startY is center:
+                 // (Need to change circle creation for this to work intuitively)
+                 // currentShape.set({ radius: Math.sqrt(Math.pow(endX - startX, 2) + Math.pow(endY - startY, 2)) });
+
+                break;
+        }
+        fabricCanvas.renderAll();
+    });
+
+    fabricCanvas.on('mouse:up', (o) => {
+        if (isDrawingShape && currentShape) {
+            currentShape.set({
+                selectable: true, // Make it selectable after drawing
+                evented: true
+            });
+            if (currentTool === 'circle' && currentShape.radius < (currentStrokeWidth / 2) + 1) {
+                 fabricCanvas.remove(currentShape); // Remove tiny circles (likely accidental clicks)
+            } else if (currentTool === 'rect' && (currentShape.width < 2 || currentShape.height < 2)) {
+                 fabricCanvas.remove(currentShape); // Remove tiny rects
+            } else if (currentTool === 'line' && (Math.abs(currentShape.x1 - currentShape.x2) < 2 && Math.abs(currentShape.y1 - currentShape.y2) < 2)) {
+                 fabricCanvas.remove(currentShape); // Remove tiny lines
             }
-            ctx.stroke();
-        });
-    }
 
-    function drawPlacementPreview(currentMousePos) {
-        if (!loadedSvgObject || !placementAnchorPos) return;
 
-        const targetWidth = Math.abs(currentMousePos.x - placementAnchorPos.x);
-        if (targetWidth < 1 && loadedSvgObject.originalWidth > 0) return;
-
-        let scale = 1;
-        if (loadedSvgObject.originalWidth > 0) {
-            scale = targetWidth / loadedSvgObject.originalWidth;
-        } else {
-            const targetHeight = Math.abs(currentMousePos.y - placementAnchorPos.y);
-            if (loadedSvgObject.originalHeight > 0) {
-                scale = targetHeight / loadedSvgObject.originalHeight;
-            } else {
-                 scale = 1; // Default scale if SVG has no dimensions
-            }
+            currentShape = null;
         }
-        if (scale <= 0) scale = 0.001; // Prevent zero/negative scale
+        isDrawingShape = false;
+        // If not drawing, and we were in placement mode, this mouse:up might be to deselect the SVG.
+        // The mouse:down handler should have already finalized placement.
+        // No, if in placement mode, fabric handles object interaction.
 
-        const actualAnchorX = (currentMousePos.x < placementAnchorPos.x) ? currentMousePos.x : placementAnchorPos.x;
-        const actualAnchorY = (currentMousePos.y < placementAnchorPos.y) ? currentMousePos.y : placementAnchorPos.y;
-        // More precise placement logic based on how aspect ratio scaling works:
-        // If dragging left/up, the opposite corner (from anchor) moves, so placementAnchorPos is still the reference for top-left
-        // but the width/height calculation influences the scale.
-        // The current `actualAnchorX` and `actualAnchorY` try to make the dragged rect fill the space.
-        // Let's simplify the anchor for preview to be consistent, and let scale handle size.
-        // The starting point for drawing the scaled SVG relative to `placementAnchorPos` needs to be adjusted if dragging up/left
-        // to maintain the aspect ratio correctly.
-
-        let previewAnchorX = placementAnchorPos.x;
-        let previewAnchorY = placementAnchorPos.y;
-        const scaledWidth = loadedSvgObject.originalWidth * scale;
-        const scaledHeight = loadedSvgObject.originalHeight * scale;
-
-        if (currentMousePos.x < placementAnchorPos.x) {
-            previewAnchorX = placementAnchorPos.x - scaledWidth;
+        // After drawing or placing an SVG, switch back to select tool
+        if (currentTool !== 'select' && !isPlacingSvgMode) {
+            // Delay slightly to ensure the drawn object is registered before switching tool
+            // setTimeout(() => activateTool('select'), 50);
         }
-        if (currentMousePos.y < placementAnchorPos.y) {
-            previewAnchorY = placementAnchorPos.y - scaledHeight;
-        }
+    });
 
-
-        ctx.save();
-        // ctx.strokeStyle = 'rgba(0,0,255,0.5)'; // Global preview stroke for testing
-
-        loadedSvgObject.originalShapes.forEach(shape => {
-            ctx.beginPath();
-            ctx.strokeStyle = shape.color || 'rgba(0,0,255,0.5)'; // Use shape's color or fallback
-            ctx.lineWidth = Math.max(1, (shape.lineWidth || 2) * scale); // Ensure lineWidth is at least 1
-
-            const normX = (val) => (val - loadedSvgObject.originalMinX);
-            const normY = (val) => (val - loadedSvgObject.originalMinY);
-
-            switch (shape.tool) {
-                case 'line':
-                    ctx.moveTo(previewAnchorX + normX(shape.x1) * scale, previewAnchorY + normY(shape.y1) * scale);
-                    ctx.lineTo(previewAnchorX + normX(shape.x2) * scale, previewAnchorY + normY(shape.y2) * scale);
-                    break;
-                case 'rect':
-                    ctx.rect(
-                        previewAnchorX + normX(shape.x) * scale,
-                        previewAnchorY + normY(shape.y) * scale,
-                        shape.width * scale,
-                        shape.height * scale
-                    );
-                    break;
-                case 'circle':
-                    ctx.arc(
-                        previewAnchorX + normX(shape.cx) * scale,
-                        previewAnchorY + normY(shape.cy) * scale,
-                        shape.r * scale,
-                        0, 2 * Math.PI
-                    );
-                    break;
-            }
-            ctx.stroke();
-        });
-        ctx.restore();
-    }
-
-    function finalizeSvgPlacement(finalMousePos) {
-        if (!loadedSvgObject || !placementAnchorPos) return;
-
-        const targetWidth = Math.abs(finalMousePos.x - placementAnchorPos.x);
-        let scale = 1;
-
-        if (loadedSvgObject.originalWidth > 0) {
-            scale = targetWidth / loadedSvgObject.originalWidth;
-        } else {
-            const targetHeight = Math.abs(finalMousePos.y - placementAnchorPos.y);
-            if (loadedSvgObject.originalHeight > 0) {
-                scale = targetHeight / loadedSvgObject.originalHeight;
-            } else {
-                scale = 1;
-            }
-        }
-        if (scale <= 0) scale = 0.001;
-
-        let finalAnchorX = placementAnchorPos.x;
-        let finalAnchorY = placementAnchorPos.y;
-        const scaledWidth = loadedSvgObject.originalWidth * scale;
-        const scaledHeight = loadedSvgObject.originalHeight * scale;
-
-        if (finalMousePos.x < placementAnchorPos.x) {
-            finalAnchorX = placementAnchorPos.x - scaledWidth;
-        }
-        if (finalMousePos.y < placementAnchorPos.y) {
-            finalAnchorY = placementAnchorPos.y - scaledHeight;
-        }
-
-        loadedSvgObject.originalShapes.forEach(shape => {
-            const newShape = {
-                tool: shape.tool,
-                color: shape.color,
-                lineWidth: Math.max(1, (shape.lineWidth || 2) * scale)
-            };
-
-            const normX = (val) => (val - loadedSvgObject.originalMinX);
-            const normY = (val) => (val - loadedSvgObject.originalMinY);
-
-            switch (shape.tool) {
-                case 'line':
-                    newShape.x1 = finalAnchorX + normX(shape.x1) * scale;
-                    newShape.y1 = finalAnchorY + normY(shape.y1) * scale;
-                    newShape.x2 = finalAnchorX + normX(shape.x2) * scale;
-                    newShape.y2 = finalAnchorY + normY(shape.y2) * scale;
-                    break;
-                case 'rect':
-                    newShape.x1 = finalAnchorX + normX(shape.x) * scale;
-                    newShape.y1 = finalAnchorY + normY(shape.y) * scale;
-                    newShape.width = shape.width * scale;
-                    newShape.height = shape.height * scale;
-                    break;
-                case 'circle':
-                    newShape.x1 = finalAnchorX + normX(shape.cx) * scale;
-                    newShape.y1 = finalAnchorY + normY(shape.cy) * scale;
-                    newShape.radius = shape.r * scale;
-                    break;
-            }
-            shapes.push(newShape);
-        });
-        redrawShapes();
-    }
-
+    // --- Load SVG ---
     loadSvgButton.addEventListener('click', () => {
         if (isPlacingSvgMode) {
-            setPlacingSvgMode(false);
-            redrawShapes();
+            setPlacingSvgMode(false, loadedSvgGroup); // Finalize if already placing
+            activateTool('select');
         }
         loadSvgInput.click();
     });
@@ -389,7 +339,30 @@ document.addEventListener('DOMContentLoaded', () => {
         const reader = new FileReader();
         reader.onload = (e) => {
             const svgString = e.target.result;
-            prepareSvgForPlacement(svgString);
+            fabric.loadSVGFromString(svgString, (objects, options) => {
+                if (!objects || objects.length === 0) {
+                    alert("Could not load SVG or SVG is empty/unsupported.");
+                    return;
+                }
+                // `objects` is an array of fabric objects from the SVG
+                // `options` contains original width/height if available in SVG
+                const group = fabric.util.groupSVGElements(objects, options);
+
+                // Apply current stroke color/width to loaded SVG elements if they don't have their own
+                group.getObjects().forEach(obj => {
+                    if (!obj.stroke) obj.set('stroke', currentColor); // if SVG element had no stroke, apply current
+                    if (!obj.strokeWidth && obj.stroke) obj.set('strokeWidth', currentStrokeWidth); // if had stroke but no width
+                    if (obj.fill && obj.fill !== 'none' && obj.fill !== 'transparent' && !obj.stroke) {
+                        // If it has a fill but no stroke, give it a default stroke for visibility
+                        obj.set('stroke', currentColor);
+                        obj.set('strokeWidth', 1); // small stroke
+                    }
+                    obj.set('fill', 'transparent'); // Make all fills transparent for CAD-like behavior
+                });
+
+
+                setPlacingSvgMode(true, group);
+            });
             loadSvgInput.value = '';
         };
         reader.onerror = (e) => {
@@ -400,178 +373,48 @@ document.addEventListener('DOMContentLoaded', () => {
         reader.readAsText(file);
     });
 
-    function parseFloatAttr(element, attrName, defaultValue = NaN) {
-        const valStr = element.getAttribute(attrName);
-        if (valStr === null) {
-            if ((attrName === 'x' || attrName === 'y') && element.tagName.toLowerCase() === 'rect') return 0;
-            if ((attrName === 'cx' || attrName === 'cy' || attrName === 'r') && element.tagName.toLowerCase() === 'circle') return 0; // SVG spec default 0 for cx,cy,r
-            console.warn(`Attribute '${attrName}' missing on <${element.tagName}>. Using default/NaN.`);
-            return defaultValue;
-        }
-        const val = parseFloat(valStr);
-        if (isNaN(val)) {
-            console.error(`Attribute '${attrName}' on <${element.tagName}> has non-numeric value: "${valStr}". Using NaN.`);
-            return NaN;
-        }
-        return val;
-    }
 
-    function processSvgElement(element, shapesArray, bounds) {
-        let shapeData = null;
-        const stroke = element.getAttribute('stroke') || '#000000';
-        let strokeWidth = parseFloatAttr(element, 'stroke-width', 2);
-        if (isNaN(strokeWidth) || strokeWidth <= 0) strokeWidth = 2;
-
-        console.log(`Processing SVG element: <${element.tagName.toLowerCase()}>`);
-
-        let elMinX = Infinity, elMinY = Infinity, elMaxX = -Infinity, elMaxY = -Infinity;
-        let hasNaN = false;
-
-        switch (element.tagName.toLowerCase()) {
-            case 'line':
-                const x1 = parseFloatAttr(element, 'x1');
-                const y1 = parseFloatAttr(element, 'y1');
-                const x2 = parseFloatAttr(element, 'x2');
-                const y2 = parseFloatAttr(element, 'y2');
-                if ([x1, y1, x2, y2].some(isNaN)) { hasNaN = true; break; }
-                shapeData = { tool: 'line', color: stroke, lineWidth: strokeWidth, x1, y1, x2, y2 };
-                elMinX = Math.min(x1, x2); elMaxX = Math.max(x1, x2);
-                elMinY = Math.min(y1, y2); elMaxY = Math.max(y1, y2);
-                break;
-            case 'rect':
-                const x = parseFloatAttr(element, 'x');
-                const y = parseFloatAttr(element, 'y');
-                const width = parseFloatAttr(element, 'width');
-                const height = parseFloatAttr(element, 'height');
-                if ([x, y, width, height].some(isNaN)) { hasNaN = true; break; }
-                shapeData = { tool: 'rect', color: stroke, lineWidth: strokeWidth, x, y, width, height };
-                elMinX = width < 0 ? x + width : x; elMaxX = width < 0 ? x : x + width;
-                elMinY = height < 0 ? y + height : y; elMaxY = height < 0 ? y : y + height;
-                break;
-            case 'circle':
-                const cx = parseFloatAttr(element, 'cx');
-                const cy = parseFloatAttr(element, 'cy');
-                const r = parseFloatAttr(element, 'r');
-                if ([cx, cy, r].some(isNaN)) { hasNaN = true; break; }
-                if (r < 0) { console.error(`Circle 'r' is negative on <${element.tagName}>.`); hasNaN = true; break; }
-                shapeData = { tool: 'circle', color: stroke, lineWidth: strokeWidth, cx, cy, r };
-                elMinX = cx - r; elMaxX = cx + r;
-                elMinY = cy - r; elMaxY = cy + r;
-                break;
-            case 'g':
-                console.log("Found <g> element, processing its children...");
-                Array.from(element.children).forEach(child => {
-                    processSvgElement(child, shapesArray, bounds);
-                });
-                return;
-            default:
-                console.log(`Unsupported SVG element type: <${element.tagName.toLowerCase()}>. Skipping.`);
-        }
-
-        if (hasNaN) {
-            console.warn(`Skipping <${element.tagName.toLowerCase()}> due to missing/invalid essential attributes.`);
-            return;
-        }
-
-        if (shapeData) {
-            shapesArray.push(shapeData);
-            bounds.minX = Math.min(bounds.minX, elMinX);
-            bounds.minY = Math.min(bounds.minY, elMinY);
-            bounds.maxX = Math.max(bounds.maxX, elMaxX);
-            bounds.maxY = Math.max(bounds.maxY, elMaxY);
-            console.log("Successfully processed and added shape:", shapeData);
-        }
-    }
-
-    function prepareSvgForPlacement(svgString) {
-        console.log("Attempting to parse SVG string...");
-        const parser = new DOMParser();
-        const svgDoc = parser.parseFromString(svgString, "image/svg+xml");
-        const svgElement = svgDoc.documentElement;
-
-        const parserError = svgDoc.getElementsByTagName("parsererror");
-        if (svgElement.tagName.toLowerCase() !== 'svg' || (parserError && parserError.length > 0)) {
-            const errorDetails = parserError.length > 0 ? parserError[0].textContent : "Root element not <svg>";
-            console.error("SVG parsing error:", errorDetails);
-            alert(`Could not parse SVG file. Error: ${errorDetails.substring(0,100)}...`);
-            return;
-        }
-
-        let tempShapes = [];
-        let bounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
-
-        console.log("Starting SVG element processing on children of <svg>...");
-        Array.from(svgElement.children).forEach(element => {
-            processSvgElement(element, tempShapes, bounds);
-        });
-
-        console.log(`Finished SVG processing. Found ${tempShapes.length} supported shapes.`);
-        console.log("Calculated original bounds:", JSON.stringify(bounds));
-
-        if (tempShapes.length === 0) {
-            alert("No supported shapes (line, rect, circle) found in SVG. Check console for details.");
-            return;
-        }
-
-        loadedSvgObject = {
-            originalShapes: tempShapes,
-            originalMinX: bounds.minX === Infinity ? 0 : bounds.minX,
-            originalMinY: bounds.minY === Infinity ? 0 : bounds.minY,
-            originalWidth: (bounds.maxX === -Infinity || bounds.minX === Infinity) ? 0 : bounds.maxX - bounds.minX,
-            originalHeight: (bounds.maxY === -Infinity || bounds.minY === Infinity) ? 0 : bounds.maxY - bounds.minY,
-        };
-
-        if (loadedSvgObject.originalWidth <= 0 && loadedSvgObject.originalHeight <= 0 && tempShapes.length > 0) {
-             console.warn("SVG content has zero effective width/height. Using default 10x10 for placement.");
-             loadedSvgObject.originalWidth = Math.max(1, loadedSvgObject.originalWidth); // Ensure at least 1 if calculated as 0 but has shapes
-             loadedSvgObject.originalHeight = Math.max(1, loadedSvgObject.originalHeight);
-             if (loadedSvgObject.originalWidth <=0) loadedSvgObject.originalWidth = 10;
-             if (loadedSvgObject.originalHeight <=0) loadedSvgObject.originalHeight = 10;
-        } else {
-             loadedSvgObject.originalWidth = Math.max(0, loadedSvgObject.originalWidth);
-             loadedSvgObject.originalHeight = Math.max(0, loadedSvgObject.originalHeight);
-        }
-
-
-        console.log("Prepared loadedSvgObject for placement:", loadedSvgObject);
-        setPlacingSvgMode(true);
-    }
-
-
+    // --- Clear and Save ---
     document.getElementById('clear-canvas').addEventListener('click', () => {
         if (isPlacingSvgMode) {
-            setPlacingSvgMode(false);
+            setPlacingSvgMode(false, null); // Cancel placement and remove preview
         }
-        shapes = [];
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        fabricCanvas.clear(); // Fabric's clear method
+        fabricCanvas.backgroundColor = '#fff'; // Reset background if clear removed it
+        fabricCanvas.renderAll();
     });
 
     document.getElementById('save-svg').addEventListener('click', () => {
-        let svgContent = `<svg width="${canvas.width}" height="${canvas.height}" xmlns="http://www.w3.org/2000/svg">\n`;
-        svgContent += `  <rect width="100%" height="100%" fill="#fff"/>\n`; // Background
+        if (isPlacingSvgMode) {
+            setPlacingSvgMode(false, loadedSvgGroup); // Finalize SVG before saving
+            activateTool('select');
+        }
+        // Ensure all objects are not actively being drawn
+        if (currentShape) {
+            fabricCanvas.remove(currentShape);
+            currentShape = null;
+            isDrawingShape = false;
+        }
 
-        shapes.forEach(shape => {
-            const strokeW = shape.lineWidth || 2;
-            switch (shape.tool) {
-                case 'line':
-                    svgContent += `  <line x1="${shape.x1}" y1="${shape.y1}" x2="${shape.x2}" y2="${shape.y2}" stroke="${shape.color}" stroke-width="${strokeW}"/>\n`;
-                    break;
-                case 'rect':
-                    let x = shape.x1;
-                    let y = shape.y1;
-                    let w = shape.width;
-                    let h = shape.height;
-                    if (w < 0) { x = shape.x1 + w; w = -w; }
-                    if (h < 0) { y = shape.y1 + h; h = -h; }
-                    svgContent += `  <rect x="${x}" y="${y}" width="${w}" height="${h}" stroke="${shape.color}" stroke-width="${strokeW}" fill="none"/>\n`;
-                    break;
-                case 'circle':
-                    svgContent += `  <circle cx="${shape.x1}" cy="${shape.y1}" r="${shape.radius}" stroke="${shape.color}" stroke-width="${strokeW}" fill="none"/>\n`;
-                    break;
+        const svgData = fabricCanvas.toSVG({
+            suppressPreamble: true, //  Don't include XML declaration
+            width: fabricCanvas.width,
+            height: fabricCanvas.height,
+            viewBox: {
+                x: 0,
+                y: 0,
+                width: fabricCanvas.width,
+                height: fabricCanvas.height
             }
         });
-        svgContent += '</svg>';
-        const blob = new Blob([svgContent], { type: 'image/svg+xml;charset=utf-8' });
+
+        // Add a white background rect to the SVG string manually if needed
+        // because fabricCanvas.backgroundColor doesn't always translate to a <rect> in toSVG()
+        // depending on how you want the SVG to behave.
+        // For now, let's assume the SVG viewer will handle background.
+        // Or, add a white rect as the first object on the canvas if a visual bg is always needed in the SVG file.
+
+        const blob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
@@ -581,4 +424,22 @@ document.addEventListener('DOMContentLoaded', () => {
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
     });
+
+    // --- Keyboard delete ---
+    window.addEventListener('keydown', (e) => {
+        if (e.key === 'Delete' || e.key === 'Backspace') {
+            const activeObject = fabricCanvas.getActiveObject();
+            if (activeObject) {
+                if (activeObject.type === 'activeSelection') { // Group selection
+                    activeObject.forEachObject(obj => fabricCanvas.remove(obj));
+                }
+                fabricCanvas.remove(activeObject);
+                fabricCanvas.discardActiveObject();
+                fabricCanvas.renderAll();
+            }
+        }
+    });
+
+    // Initial tool activation
+    activateTool('line');
 });

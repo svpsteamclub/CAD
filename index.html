@@ -3,8 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Simple CAD Web App</title>
+    <title>Simple CAD Web App with Fabric.js</title>
     <link rel="stylesheet" href="style.css">
+    <!-- Add Fabric.js library -->
+    <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
 </head>
 <body>
     <div class="toolbar">
@@ -18,8 +20,8 @@
         <input type="file" id="load-svg-input" accept=".svg" style="display: none;">
         <button id="load-svg-button">Load SVG</button>
     </div>
-    <canvas id="drawing-canvas"></canvas>
-    <div id="status-message"></div> <!-- Status message div -->
+    <canvas id="drawing-canvas"></canvas> <!-- Fabric will take over this canvas -->
+    <div id="status-message"></div>
 
     <script src="script.js"></script>
 </body>
