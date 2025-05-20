@@ -524,8 +524,22 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
 
                 try {
-                    const group = fabric.util.groupSVGElements(objects, options);
-                    group.getObjects().forEach(obj => {
+                    let group = fabric.util.groupSVGElements(objects, options);
+                    // If only one object, group will be that object, not a group
+                    if (group.type === 'group' && typeof group.getObjects === 'function') {
+                        group.getObjects().forEach(obj => {
+                            try {
+                                if (!obj.stroke) obj.set('stroke', currentColor);
+                                if (!obj.strokeWidth && obj.stroke) obj.set('strokeWidth', currentStrokeWidth);
+                                if (obj.fill && obj.fill !== 'none') obj.set('fill', 'transparent');
+                                obj.set({ selectable: true, evented: true, visible: true });
+                            } catch (e) {
+                                console.warn("Warning loading SVG element:", obj, e);
+                            }
+                        });
+                    } else {
+                        // Single object, treat as array of one
+                        let obj = group;
                         try {
                             if (!obj.stroke) obj.set('stroke', currentColor);
                             if (!obj.strokeWidth && obj.stroke) obj.set('strokeWidth', currentStrokeWidth);
@@ -534,7 +548,9 @@ document.addEventListener('DOMContentLoaded', () => {
                         } catch (e) {
                             console.warn("Warning loading SVG element:", obj, e);
                         }
-                    });
+                        // For consistency, wrap in a group
+                        group = new fabric.Group([obj], options);
+                    }
                     group.set({
                         originX: 'center',
                         originY: 'center',
@@ -695,4 +711,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Initial tool activation
     activateTool('line');
+
+    console.log(window.fabric); // Should print the Fabric.js object
+    console.log(fabric.version); // Should print the Fabric.js version
 });
