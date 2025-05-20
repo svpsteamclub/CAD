@@ -101,23 +101,53 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (active && svgGroup) {
             document.body.classList.add('placing-svg-mode');
-            // Initially place the SVG slightly off-center and small for user to position
+            
+            // Add controls to the SVG group
+            svgGroup.setControlsVisibility({
+                mt: true, // middle top
+                mb: true, // middle bottom
+                ml: true, // middle left
+                mr: true, // middle right
+                bl: true, // bottom left
+                br: true, // bottom right
+                tl: true, // top left
+                tr: true, // top right
+                mtr: true // rotation control
+            });
+
+            // Initially place the SVG in the center
             fabricCanvas.add(svgGroup);
             fabricCanvas.centerObject(svgGroup);
-            svgGroup.scaleToWidth(fabricCanvas.width * 0.3); // Initial small size
-            if (svgGroup.isContainedWithinObject(fabricCanvas) === false) { // if aspect ratio makes it too tall
-                 svgGroup.scaleToHeight(fabricCanvas.height * 0.3);
-            }
+            
+            // Set initial size to 30% of canvas width or height, whichever is smaller
+            const initialScale = Math.min(
+                (fabricCanvas.width * 0.3) / svgGroup.width,
+                (fabricCanvas.height * 0.3) / svgGroup.height
+            );
+            svgGroup.scale(initialScale);
 
-            fabricCanvas.setActiveObject(svgGroup); // Make it selectable
+            // Make it selectable and draggable
+            svgGroup.set({
+                selectable: true,
+                hasControls: true,
+                hasBorders: true,
+                lockMovementX: false,
+                lockMovementY: false,
+                lockRotation: false,
+                lockScalingX: false,
+                lockScalingY: false,
+                lockUniScaling: false
+            });
+
+            fabricCanvas.setActiveObject(svgGroup);
             fabricCanvas.renderAll();
-            showStatus("SVG loaded. Click and drag to position, use handles to resize/rotate.");
-            // Switch to selection tool implicitly
+            
+            showStatus("SVG loaded. Click and drag to position, use corner handles to resize, and the top handle to rotate.");
             activateTool('select');
         } else {
             document.body.classList.remove('placing-svg-mode');
             showStatus("");
-            if (svgGroup && !active) { // If canceling placement
+            if (svgGroup && !active) {
                 fabricCanvas.remove(svgGroup);
             }
             loadedSvgGroup = null;
@@ -393,6 +423,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loadSvgInput.addEventListener('change', (event) => {
         const file = event.target.files[0];
         if (!file) return;
+        
         if (file.type !== "image/svg+xml") {
             alert("Please select an SVG file.");
             loadSvgInput.value = '';
@@ -402,40 +433,103 @@ document.addEventListener('DOMContentLoaded', () => {
         const reader = new FileReader();
         reader.onload = (e) => {
             const svgString = e.target.result;
+            
+            // Show loading status
+            showStatus("Loading SVG...");
+            
             fabric.loadSVGFromString(svgString, (objects, options) => {
                 if (!objects || objects.length === 0) {
                     alert("Could not load SVG or SVG is empty/unsupported.");
+                    showStatus("");
                     return;
                 }
-                // `objects` is an array of fabric objects from the SVG
-                // `options` contains original width/height if available in SVG
+
+                // Create a group from the SVG objects
                 const group = fabric.util.groupSVGElements(objects, options);
 
-                // Apply current stroke color/width to loaded SVG elements if they don't have their own
+                // Apply current stroke settings to all objects in the group
                 group.getObjects().forEach(obj => {
-                    if (!obj.stroke) obj.set('stroke', currentColor); // if SVG element had no stroke, apply current
-                    if (!obj.strokeWidth && obj.stroke) obj.set('strokeWidth', currentStrokeWidth); // if had stroke but no width
-                    if (obj.fill && obj.fill !== 'none' && obj.fill !== 'transparent' && !obj.stroke) {
-                        // If it has a fill but no stroke, give it a default stroke for visibility
+                    // Preserve original stroke if it exists
+                    if (!obj.stroke) {
                         obj.set('stroke', currentColor);
-                        obj.set('strokeWidth', 1); // small stroke
                     }
-                    obj.set('fill', 'transparent'); // Make all fills transparent for CAD-like behavior
+                    if (!obj.strokeWidth && obj.stroke) {
+                        obj.set('strokeWidth', currentStrokeWidth);
+                    }
+                    
+                    // Make fills transparent for CAD-like behavior
+                    if (obj.fill && obj.fill !== 'none') {
+                        obj.set('fill', 'transparent');
+                    }
+                    
+                    // Ensure all objects are selectable and visible
+                    obj.set({
+                        selectable: true,
+                        evented: true,
+                        visible: true
+                    });
                 });
 
+                // Set up the group for placement
+                group.set({
+                    originX: 'center',
+                    originY: 'center',
+                    centeredScaling: true,
+                    centeredRotation: true
+                });
 
                 setPlacingSvgMode(true, group);
             });
+            
             loadSvgInput.value = '';
         };
+        
         reader.onerror = (e) => {
             console.error("Error reading file:", e);
             alert("Error reading SVG file.");
+            showStatus("");
             loadSvgInput.value = '';
         };
+        
         reader.readAsText(file);
     });
 
+    // Add keyboard controls for fine-tuning SVG placement
+    window.addEventListener('keydown', (e) => {
+        if (!isPlacingSvgMode || !loadedSvgGroup) return;
+
+        const moveAmount = e.shiftKey ? 10 : 1; // Larger movement with shift key
+        const rotateAmount = e.shiftKey ? 15 : 5; // Larger rotation with shift key
+
+        switch(e.key) {
+            case 'ArrowLeft':
+                loadedSvgGroup.set('left', loadedSvgGroup.left - moveAmount);
+                break;
+            case 'ArrowRight':
+                loadedSvgGroup.set('left', loadedSvgGroup.left + moveAmount);
+                break;
+            case 'ArrowUp':
+                loadedSvgGroup.set('top', loadedSvgGroup.top - moveAmount);
+                break;
+            case 'ArrowDown':
+                loadedSvgGroup.set('top', loadedSvgGroup.top + moveAmount);
+                break;
+            case 'r':
+                loadedSvgGroup.set('angle', loadedSvgGroup.angle + rotateAmount);
+                break;
+            case 'R':
+                loadedSvgGroup.set('angle', loadedSvgGroup.angle - rotateAmount);
+                break;
+            case 'Escape':
+                setPlacingSvgMode(false, null); // Cancel placement
+                return;
+            case 'Enter':
+                setPlacingSvgMode(false, loadedSvgGroup); // Finalize placement
+                return;
+        }
+        
+        fabricCanvas.renderAll();
+    });
 
     // --- Clear and Save ---
     document.getElementById('clear-canvas').addEventListener('click', () => {
