@@ -531,7 +531,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             try {
                                 if (!obj.stroke) obj.set('stroke', currentColor);
                                 if (!obj.strokeWidth && obj.stroke) obj.set('strokeWidth', currentStrokeWidth);
-                                if (obj.fill && obj.fill !== 'none') obj.set('fill', 'transparent');
+                                // Now, preserve the original fill
                                 obj.set({ selectable: true, evented: true, visible: true });
                             } catch (e) {
                                 console.warn("Warning loading SVG element:", obj, e);
@@ -543,7 +543,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         try {
                             if (!obj.stroke) obj.set('stroke', currentColor);
                             if (!obj.strokeWidth && obj.stroke) obj.set('strokeWidth', currentStrokeWidth);
-                            if (obj.fill && obj.fill !== 'none') obj.set('fill', 'transparent');
+                            // Now, preserve the original fill
                             obj.set({ selectable: true, evented: true, visible: true });
                         } catch (e) {
                             console.warn("Warning loading SVG element:", obj, e);
@@ -559,8 +559,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     });
                     setPlacingSvgMode(true, group);
                 } catch (error) {
+                    // Enhanced error logging for SVG import
                     console.error("Error processing SVG group:", error);
-                    alert("Error processing SVG. The file might be too complex or contain unsupported elements.");
+                    if (objects && objects.length) {
+                        console.error("SVG objects:", objects);
+                        console.error("SVG options:", options);
+                    }
+                    alert("Error processing SVG. The file might be too complex or contain unsupported elements.\n" + error);
                     showStatus("");
                 }
             }, (error) => {
